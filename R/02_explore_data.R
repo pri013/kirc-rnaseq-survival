@@ -71,7 +71,7 @@ cols_needed <- list(
   vital_status          = "tcga.gdc_cases.diagnoses.vital_status",
   days_to_death         = "tcga.gdc_cases.diagnoses.days_to_death",
   days_to_last_followup = "tcga.gdc_cases.diagnoses.days_to_last_follow_up",
-  age                   = "tcga.xml_primary_pathology_age_at_initial_pathologic_diagnosis",
+  age                   = "tcga.xml_age_at_initial_pathologic_diagnosis",   # CHANGED
   gender                = "tcga.gdc_cases.demographic.gender",
   stage                 = "tcga.cgc_case_pathologic_stage",
   grade                 = "tcga.xml_neoplasm_histologic_grade",
