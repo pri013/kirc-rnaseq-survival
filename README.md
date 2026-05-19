@@ -44,6 +44,8 @@ Three layers, each answering one part of the question:
 - [ ] Final report
 
 ## Repository Structure
+
+```
 kirc-rnaseq-survival/
 ├── R/                  # R analysis scripts (numbered in execution order)
 ├── data/               # Data (gitignored)
@@ -56,6 +58,7 @@ kirc-rnaseq-survival/
 ├── results/            # Output tables (DE results, etc.)
 ├── docs/               # Documentation
 └── tests/              # Sanity-check scripts
+```
 
 ## Reproducibility
 
