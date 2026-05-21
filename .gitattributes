@@ -1,0 +1,3 @@
+reports/*.html linguistic-generated=true
+reports/*.html linguist-documentation=true
+*.qmd linguist-language=R
