@@ -1,68 +1,133 @@
-# KIRC RNA-seq: Differential Expression and Survival Analysis
+# KIRC RNA-seq Analysis: Differential Expression and Survival
 
-End-to-end RNA-seq analysis of clear cell renal cell carcinoma (KIRC) using TCGA data, built to demonstrate a full computational genomics workflow — from raw sequencing data through clinical interpretation.
+> End-to-end transcriptomic analysis of clear cell renal cell carcinoma (TCGA-KIRC), from raw counts to a clinically meaningful prognostic risk score.
 
-## Research Question
+📊 **[→ View the full report (interactive HTML)](https://pri013.github.io/kirc-rnaseq-survival/reports/kirc_analysis_report.html)**
 
-Which genes and biological pathways are dysregulated in KIRC tumors compared to matched normal kidney tissue, and which of those dysregulated genes independently predict patient overall survival after adjusting for clinical covariates?
+💻 **[→ View the code](https://github.com/pri013/kirc-rnaseq-survival/tree/main/R)**
+
+---
+
+## TL;DR
+
+I analyzed 543 KIRC tumors and 72 matched normal kidney samples from The Cancer Genome Atlas to answer three connected questions:
+
+| Question | Finding |
+|---|---|
+| What genes are dysregulated in tumors? | **10,381 significantly DE genes** (7,193 up, 3,188 down); top hits include CA9, NDUFA4L2, EGLN3, HILPDA — canonical HIF/VHL biology |
+| What pathways are affected? | Canonical KIRC signature confirmed: **HIF-driven hypoxia activation + Warburg metabolic shift + heavy immune infiltration**, validated across three independent methods (GSEA Hallmarks, KEGG, GO BP) |
+| Which genes predict survival? | **20 genes independently prognostic** after multivariate adjustment; a composite 10-gene risk score yields hazard ratio = **2.72 (95% CI: 1.98–3.75, p < 0.0001)** |
+
+---
+
+## Research question
+
+> Which genes and biological pathways are dysregulated in clear cell renal cell carcinoma compared to matched normal kidney, and which of those dysregulated genes independently predict patient overall survival?
+
+This is the standard biomarker discovery flow: differential expression → pathway interpretation → survival validation. The findings recapitulate validated KIRC biology and extend it with a transcriptomic risk score that captures prognostic information beyond standard clinical staging.
+
+---
+
+## Key figures
+
+### Differential expression: clean volcano
+
+![Volcano plot](figures/de/volcano_plot.png)
+
+### Pathway enrichment: HIF, Warburg, immune
+
+![Hallmark dotplot](figures/pathway/hallmark_dotplot.png)
+
+### Risk score stratifies overall survival
+
+![Risk score KM](figures/survival/risk_score_km.png)
+
+---
 
 ## Approach
 
-Three layers, each answering one part of the question:
+1. **Data acquisition** — pulled uniformly processed TCGA-KIRC counts via `recount3` (Monorail pipeline, STAR-aligned, GENCODE v26)
+2. **QC** — filtering, variance-stabilizing transformation, PCA confirms tumor vs normal separation (PC1: 29% variance)
+3. **Differential expression** — DESeq2 negative binomial GLM with adjustment for gender; `apeglm` shrinkage
+4. **Pathway enrichment** — GSEA via `fgsea` against MSigDB Hallmarks + KEGG; ORA via `clusterProfiler` against GO BP
+5. **Survival modeling** — Cox proportional hazards (univariate + multivariate adjusting for stage, grade, age, sex); Kaplan-Meier; composite risk score
 
-1. **Pipeline (Nextflow)** — containerized FASTQ-to-counts pipeline demonstrating reproducible large-scale data processing
-2. **Differential expression and pathway analysis (R + Python)** — DESeq2 / PyDESeq2 with GSEA against MSigDB Hallmarks
-3. **Survival analysis** — univariate and multivariate Cox regression to test whether top dysregulated genes predict outcomes independently of stage, grade, age, and sex
+---
 
-## Dataset
+## Tech stack
 
-- **TCGA-KIRC** via the `recount3` resource (uniformly processed)
-- ~530 tumor samples, ~70 matched normal samples
-- Clinical and survival metadata from cBioPortal
-- Subset of raw FASTQ files from GDC for pipeline demonstration
+- **R** (4.4.2), managed with `renv` for reproducibility
+- **Bioconductor:** DESeq2, recount3, fgsea, clusterProfiler, EnhancedVolcano, ComplexHeatmap, survival, survminer, org.Hs.eg.db
+- **Tidyverse:** dplyr, ggplot2, tidyr
+- **Reporting:** Quarto → HTML, hosted on GitHub Pages
 
-## Tech Stack
+---
 
-- **R:** DESeq2, recount3, clusterProfiler, fgsea, survival, survminer, shiny
-- **Python:** PyDESeq2, gseapy, lifelines, streamlit, pandas
-- **Pipeline:** Nextflow (DSL2), Docker, Salmon, FastQC, fastp, MultiQC
-- **Reporting:** Quarto
-
-## Status
-
-🚧 In active development.
-
-- [x] Project scaffold
-- [ ] R environment and data loading
-- [ ] QC and exploratory analysis
-- [ ] Differential expression
-- [ ] Pathway enrichment
-- [ ] Survival analysis
-- [ ] Nextflow pipeline
-- [ ] Python replication
-- [ ] Interactive dashboard
-- [ ] Final report
-
-## Repository Structure
-
-```
+## Repository structure
 kirc-rnaseq-survival/
-├── R/                  # R analysis scripts (numbered in execution order)
-├── data/               # Data (gitignored)
-│   ├── raw/            # Original downloaded data
-│   ├── interim/        # Partially processed
-│   └── processed/      # Analysis-ready
-├── notebooks/          # Exploratory analysis
-├── reports/            # Quarto reports
-├── figures/            # Generated figures
-├── results/            # Output tables (DE results, etc.)
-├── docs/               # Documentation
-└── tests/              # Sanity-check scripts
+├── R/                          # Numbered analysis scripts (01 → 06)
+│   ├── 01_load_data.R          # Pull TCGA-KIRC from recount3
+│   ├── 02_explore_data.R       # Clinical metadata + EDA
+│   ├── 03_qc_counts.R          # Filtering, VST, PCA
+│   ├── 04_differential_expression.R   # DESeq2
+│   ├── 05_pathway_enrichment.R # GSEA + ORA
+│   └── 06_survival_analysis.R  # Cox regression + risk score
+├── reports/
+│   └── kirc_analysis_report.qmd  # Full Quarto report (rendered HTML linked above)
+├── figures/                    # Generated figures
+├── results/                    # Output tables (DE results, Cox HRs, etc.)
+├── data/                       # (gitignored — regenerated by scripts)
+└── renv.lock                   # Pinned package versions
+
+---
+
+## Reproduction
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/pri013/kirc-rnaseq-survival.git
+cd kirc-rnaseq-survival
+
+# 2. Open the project in RStudio (kirc-rnaseq-survival.Rproj)
+
+# 3. Restore the R environment (~5 minutes)
+renv::restore()
+
+# 4. Run scripts in order (data is downloaded by 01_load_data.R)
+source("R/01_load_data.R")
+source("R/02_explore_data.R")
+source("R/03_qc_counts.R")
+source("R/04_differential_expression.R")
+source("R/05_pathway_enrichment.R")
+source("R/06_survival_analysis.R")
+
+# 5. Render the report
+quarto::quarto_render("reports/kirc_analysis_report.qmd")
 ```
 
-## Reproducibility
+Full software environment, package versions, and data provenance are documented in `renv.lock` and the rendered report.
 
-Detailed reproduction instructions will be added as the project develops.
+---
+
+## Roadmap
+
+- [x] Differential expression analysis
+- [x] Pathway enrichment (GSEA + ORA)
+- [x] Survival analysis + composite risk score
+- [x] Quarto report
+- [ ] Interactive Shiny dashboard
+- [ ] Python replication (PyDESeq2 + lifelines)
+- [ ] Containerized Nextflow pipeline (FASTQ → counts)
+
+---
+
+## Author
+
+**Priya Dhumal**
+
+[GitHub](https://github.com/pri013) · [LinkedIn](https://www.linkedin.com/in/priya13d/)
+
+---
 
 ## License
 
