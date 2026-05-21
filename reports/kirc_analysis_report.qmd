@@ -1,0 +1,206 @@
+
+---
+title: "Transcriptomic Profiling and Survival Analysis of Clear Cell Renal Cell Carcinoma"
+subtitle: "End-to-end RNA-seq analysis using TCGA-KIRC"
+author: "Priya Dhumal"
+date: 5/20/2026
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: true
+    code-fold: true
+    code-tools: true
+    theme: cosmo
+    fig-align: center
+    fig-cap-location: bottom
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+library(here)
+library(dplyr)
+library(tibble)
+library(ggplot2)
+library(knitr)
+
+de_df    <- read.table(here("results", "de_results_full.tsv"),
+                       sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+sig_df   <- read.table(here("results", "de_results_significant.tsv"),
+                       sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+clinical <- read.table(here("data", "processed", "kirc_clinical.tsv"),
+                       sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+uni_cox  <- read.table(here("results", "survival_univariate_cox.tsv"),
+                       sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+mv_cox   <- read.table(here("results", "survival_multivariate_cox.tsv"),
+                       sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+gsea_h   <- read.table(here("results", "gsea_hallmarks.tsv"),
+                       sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+```
+
+## Abstract {.unnumbered}
+
+I performed an end-to-end transcriptomic analysis of `r format(sum(clinical$sample_type == "Primary Tumor"), big.mark = ",")` clear cell renal cell carcinoma (KIRC) tumors and `r sum(clinical$sample_type == "Solid Tissue Normal")` matched normal kidney samples from The Cancer Genome Atlas, using the uniformly processed counts from the `recount3` resource. Differential expression analysis identified `r format(nrow(sig_df), big.mark = ",")` significantly dysregulated genes (padj < 0.05, |log2FC| > 1), and pathway analysis confirmed the canonical VHL/HIF-driven hypoxia signature, Warburg metabolic shift, and pronounced immune infiltration. Survival analysis identified `r sum(mv_cox$padj_mv < 0.05, na.rm = TRUE)` genes whose expression predicts overall survival independently of stage, grade, age, and sex. A composite 10-gene transcriptomic risk score stratifies patients into high- and low-risk groups with a hazard ratio of 2.72 (95% CI: 1.98–3.75, p < 0.0001).
+
+## Background
+
+### Clear cell renal cell carcinoma
+
+Clear cell renal cell carcinoma (ccRCC, or KIRC in TCGA nomenclature) is the most common adult kidney malignancy. It is biologically distinguished by near-universal loss of the *VHL* tumor suppressor gene, which leads to constitutive stabilization of hypoxia-inducible factors (HIF-1α and HIF-2α) even under normoxic conditions. The downstream HIF transcriptional program drives the disease's defining features: increased glycolysis, altered lipid metabolism (the "clear cell" appearance), angiogenesis, and a heavily immune-infiltrated microenvironment that has made KIRC particularly responsive to immune checkpoint inhibitors.
+
+### Project goals
+
+This project addresses three connected questions:
+
+1. **Differential expression**: Which genes are dysregulated in KIRC tumors compared to matched normal kidney tissue?
+2. **Pathway dysregulation**: Which biological pathways and processes are coordinately altered?
+3. **Clinical relevance**: Of the dysregulated genes, which predict patient overall survival, independent of established clinical predictors?
+
+## Methods
+
+### Data source
+
+RNA-seq counts were obtained from the [`recount3`](https://rna.recount.bio/) resource, which provides uniformly processed gene-level counts for ~750,000 public RNA-seq samples. For TCGA-KIRC specifically, recount3 aligns raw reads to the human reference genome (hg38, GENCODE v26) using the STAR-based Monorail pipeline, producing identical processing across all samples and eliminating batch effects from data preprocessing.
+
+Clinical and survival metadata were extracted from the `colData` of the recount3 `RangedSummarizedExperiment` object, focused on GDC-harmonized fields where available.
+
+### Analysis pipeline
+
+| Step | Tool | Purpose |
+|---|---|---|
+| Count loading | `recount3` (R/Bioconductor) | Pull harmonized TCGA-KIRC counts |
+| Filtering | DESeq2 | Remove low-count genes (≥10 counts in ≥10 samples) |
+| Transformation | DESeq2 `vst()` | Variance-stabilizing transformation for visualization |
+| Differential expression | DESeq2 | Negative binomial GLM with adjustment for gender |
+| Effect size shrinkage | `apeglm` | More reliable log2FC for low-count genes |
+| Pathway enrichment | `fgsea`, `clusterProfiler` | GSEA against MSigDB Hallmarks and KEGG, ORA against GO BP |
+| Survival modeling | `survival`, `survminer` | Cox proportional hazards, Kaplan-Meier curves |
+
+All analysis was performed in R `r paste(R.version$major, R.version$minor, sep=".")` with versions managed via `renv` for reproducibility. Full code is available at the project GitHub repository.
+
+### Statistical considerations
+
+For differential expression, the design formula was `~ gender + sample_type`. Genes were considered significant at padj < 0.05 and |log2FC| > 1. Survival analyses were restricted to tumor samples with non-missing vital status and follow-up time. Genes were tested for survival association by median-dichotomizing expression and fitting Cox proportional hazards models; the top 500 most significant DE genes were tested as candidates. Genes significant in univariate Cox (BH-adjusted p < 0.05) were further tested in multivariate Cox models adjusting for tumor stage, grade, age at diagnosis, and gender.
+
+## Results
+
+### Cohort composition
+
+```{r cohort-table}
+#| label: tbl-cohort
+#| tbl-cap: "Sample composition of the KIRC cohort"
+
+clinical %>%
+  count(sample_type) %>%
+  kable(col.names = c("Sample type", "N"))
+```
+
+The cohort comprises `r sum(clinical$sample_type == "Primary Tumor")` primary tumors and `r sum(clinical$sample_type == "Solid Tissue Normal")` matched solid-tissue normal samples. Among tumor samples, `r sum(clinical$os_event == 1 & clinical$sample_type == "Primary Tumor", na.rm = TRUE)` patients died during follow-up (median follow-up: `r round(median(clinical$os_time_months[clinical$sample_type == "Primary Tumor"], na.rm = TRUE), 1)` months), providing strong statistical power for survival analysis.
+
+### Quality control
+
+Principal component analysis on the top 500 most variable genes showed clean separation of tumor and normal samples along PC1, which explained 29% of total variance.
+
+![PCA — Top 500 most variable genes](../figures/qc/pca_sample_type.png){width=80%}
+
+### Differential expression
+
+```{r de-counts}
+#| label: tbl-de-counts
+#| tbl-cap: "Number of differentially expressed genes by direction"
+
+de_df %>%
+  count(direction) %>%
+  mutate(direction = factor(direction, levels = c("Up", "Down", "NS"))) %>%
+  arrange(direction) %>%
+  kable(col.names = c("Direction", "N genes"))
+```
+
+Differential expression analysis identified `r format(nrow(sig_df), big.mark = ",")` significant genes overall: `r format(sum(de_df$direction == "Up"), big.mark = ",")` upregulated and `r format(sum(de_df$direction == "Down"), big.mark = ",")` downregulated in tumor vs normal.
+
+The top upregulated genes recapitulate the canonical KIRC molecular signature — including **CA9**, **NDUFA4L2**, **EGLN3**, and **HILPDA** — all of which are well-established HIF transcriptional targets reflecting VHL-loss biology.
+
+![Volcano plot — KIRC tumor vs normal differential expression](../figures/de/volcano_plot.png){width=85%}
+
+### Pathway enrichment
+
+GSEA against MSigDB Hallmarks identified `r sum(gsea_h$padj < 0.05, na.rm = TRUE)` significantly enriched pathways (padj < 0.05), which cluster into three biological themes:
+
+- **HIF and metabolic reprogramming**: HALLMARK_HYPOXIA and HALLMARK_GLYCOLYSIS were upregulated, while HALLMARK_OXIDATIVE_PHOSPHORYLATION was depleted — the signature Warburg shift from mitochondrial respiration to anaerobic glycolysis driven by HIF stabilization.
+- **Proliferation**: E2F targets, G2M checkpoint, and MTORC1 signaling were upregulated, consistent with the proliferative phenotype of malignancy.
+- **Immune infiltration**: Allograft rejection (the strongest single hit), interferon-γ response, IL6/JAK/STAT3 signaling, and inflammatory response were all elevated — reflecting KIRC's status as one of the most immune-infiltrated solid cancers and its clinical responsiveness to checkpoint inhibitors.
+
+![GSEA — MSigDB Hallmarks dot plot](../figures/pathway/hallmark_dotplot.png){width=90%}
+
+### Survival analysis
+
+Of the 500 most significant DE genes tested, `r sum(uni_cox$cox_padj < 0.05, na.rm = TRUE)` showed significant univariate association with overall survival (BH-adjusted p < 0.05). After multivariate Cox adjustment for stage, grade, age, and gender, `r sum(mv_cox$padj_mv < 0.05, na.rm = TRUE)` genes remained independently prognostic.
+
+```{r mv-table}
+#| label: tbl-mv-cox
+#| tbl-cap: "Top 10 independently prognostic genes (multivariate Cox, adjusted for stage, grade, age, sex)"
+
+mv_cox %>%
+  arrange(p_mv) %>%
+  slice_head(n = 10) %>%
+  mutate(
+    HR_CI = sprintf("%.2f (%.2f–%.2f)", HR_mv, HR_lower, HR_upper),
+    p_mv  = format.pval(p_mv, digits = 2),
+    padj_mv = format.pval(padj_mv, digits = 2)
+  ) %>%
+  dplyr::select(symbol, HR_CI, p_mv, padj_mv) %>%
+  kable(col.names = c("Gene", "HR (95% CI)", "p-value", "padj"))
+```
+
+![Multivariate Cox — independent prognostic genes (forest plot)](../figures/survival/forest_multivariate.png){width=85%}
+
+A composite risk score was derived from the top 10 independently prognostic genes (signed z-scored expression weighted by direction of effect). Median-split risk groups showed striking separation in overall survival.
+
+![Composite risk score — Kaplan-Meier curve](../figures/survival/risk_score_km.png){width=85%}
+
+The composite score yields a hazard ratio of **2.72 (95% CI: 1.98–3.75, p < 0.0001)** for high-risk vs low-risk patients — a clinically meaningful effect size that captures information not contained in standard clinical staging.
+
+## Discussion
+
+### What we found
+
+This analysis recapitulates and extends well-established TCGA-KIRC biology. The dominant transcriptional features — HIF/hypoxia activation, Warburg metabolic shift, and immune infiltration — are the same features that explain why KIRC responds to anti-angiogenic agents (HIF-driven VEGFA) and to checkpoint inhibitors (immune-rich microenvironment). The top upregulated genes (CA9, NDUFA4L2, EGLN3, HILPDA) are all clinically validated KIRC biomarkers, providing strong positive control that the analytic pipeline is correctly identifying real biology.
+
+The survival analysis goes beyond purely descriptive biology. The 20 independently prognostic genes — and the composite risk score derived from them — predict outcome on top of standard clinical staging, suggesting that transcriptomic information captures aggressive disease biology that histopathology alone misses. This is the principle behind clinically deployed molecular tests like Oncotype DX in breast cancer.
+
+### Limitations
+
+- **Single cohort**: All samples are TCGA-KIRC. External validation in independent KIRC cohorts would be required before any clinical claim.
+- **Median dichotomization**: For survival modeling, expression was split at the median for each gene. While interpretable, this loses statistical power compared to continuous modeling.
+- **Tumor purity not modeled**: Some "tumor" samples likely have low purity (mixed normal tissue contamination), as visible on PCA. This dilutes effect sizes but does not introduce bias.
+- **Bulk RNA-seq**: All findings reflect a mixture of cell types per sample. Single-cell follow-up would clarify which cell populations drive each signal.
+
+### Future directions
+
+Natural next steps would include: (1) extending the analysis to KIRC's molecular subtypes (which differ in HIF subtype and immune infiltration), (2) integrating with mutation and copy-number data already available in TCGA, and (3) validating the risk score in held-out KIRC cohorts.
+
+## Reproducibility
+
+All analysis code is available at the project GitHub repository. The complete pipeline can be reproduced by:
+
+1. Cloning the repository
+2. Running `renv::restore()` to install pinned package versions
+3. Running scripts `01_load_data.R` through `06_survival_analysis.R` in order
+
+Software environment, package versions, and data provenance are documented in `renv.lock`, the README, and individual script headers.
+
+## Acknowledgments {.unnumbered}
+
+This work uses data from The Cancer Genome Atlas (TCGA) Research Network, made accessible through the `recount3` resource. Analysis tools include DESeq2, fgsea, clusterProfiler, and the survival/survminer R packages.
+
+## Session information {.unnumbered}
+
+```{r session-info}
+sessionInfo()
+```
